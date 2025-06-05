@@ -1,0 +1,176 @@
+import React, { useState, useEffect } from "react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import axios from "axios";
+import { FaWhatsapp } from "react-icons/fa";
+
+export default function WhatsAppQuote() {
+  const [mobile, setMobile] = useState("");
+  const [name, setName] = useState("");
+  const [location, setLocation] = useState("");
+  const [productList, setProductList] = useState([]);
+  const [selectedProduct, setSelectedProduct] = useState("");
+  const [productDetails, setProductDetails] = useState({});
+  const [message, setMessage] = useState("");
+
+  const responsesSheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRPibZzNejSE_N7iVTUYUEuWB43ddlBtRvD7Xy8BEocGs_2fQfI2l1OOA8QRxM527RT1800EZXIirQ7/pub?gid=347901275&single=true&output=csv";
+  const priceListSheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSYZf2lDQ34ougMDq-ICcIifY2xj1waiYy_UYXWOLHRZcNyFL3f2gXPnSW7sWQEqibvqT-_GyuKU_CA/pub?gid=0&single=true&output=csv";
+
+  useEffect(() => {
+    axios.get(priceListSheetUrl).then((res) => {
+      const rows = res.data.split("\n").slice(1);
+      const products = [];
+      rows.forEach(row => {
+        const cols = row.split(",");
+        if (cols[2] && cols[2].trim() !== "") {
+          products.push(cols[2].trim());
+        }
+      });
+      setProductList([...new Set(products)]);
+    });
+  }, []);
+
+  const fetchCustomerName = () => {
+    axios.get(responsesSheetUrl).then((res) => {
+      const lines = res.data.split("\n");
+      const headers = lines[0].split(",");
+      const locationIndex = headers.findIndex(h => h.toLowerCase().includes("location"));
+      const nameIndex = headers.findIndex(h => h.toLowerCase().includes("name"));
+      const mobileIndex = headers.findIndex(h => h.toLowerCase().includes("mobile"));
+      if (nameIndex === -1 || mobileIndex === -1) return;
+
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].replace(/\r/g, "").split(",");
+        if (!cols[mobileIndex]) continue;
+        const csvMobile = cols[mobileIndex].replace(/\D/g, "");
+        const inputMobile = mobile.replace(/\D/g, "");
+        if (csvMobile.endsWith(inputMobile)) {
+          setName(cols[nameIndex]);
+          if (locationIndex !== -1) setLocation(cols[locationIndex]);
+          return;
+        }
+      }
+      setName("Not Found");
+      setLocation("");
+    });
+  };
+
+  const fetchProductDetails = () => {
+    axios.get(priceListSheetUrl).then((res) => {
+      const rows = res.data.split("\n").slice(1);
+      for (let row of rows) {
+        const cols = row.split(",");
+        if (cols[2] && cols[2].trim() === selectedProduct.trim()) {
+          setProductDetails({
+            actualPrice: cols[3],
+            ourPrice: cols[4],
+            benefits: cols[5],
+          });
+          return;
+        }
+      }
+    });
+  };
+
+  const generateMessage = () => {
+    if (!name || !selectedProduct || !productDetails.ourPrice) return;
+
+    const today = new Date();
+    const formattedDate = today.toLocaleDateString("en-GB"); // DD/MM/YYYY
+
+    const msg = `Hi ${name.toUpperCase()}
+
+YOUR QUOTATION FOR *${selectedProduct.toUpperCase()}*
+
+*DATED:* ${formattedDate}
+
+*Actual On-Road Price:* ₹${productDetails.actualPrice}
+*Benefits:* ₹${productDetails.benefits}
+*Our On-Road Price:* ₹${productDetails.ourPrice}
+
+💰 *Price Includes:*
+✔️ Ex-Showroom Price
+✔️ 12% Life Tax 
+✔️ 1 Year OD + 4 Years TP + ₹15 Lakh PA Insurance 
+✔️ Temporary Registration 
+✔️ Hypothecation (If Financed) 
+✔️ Accessories 
+🛠️ Warranty: 2 Years + 3 Years Extended 
+
+⚠️ *NOTE:* ⚠️
+    ▪️ Agent charges extra 
+    ▪️ Offers subject to change without prior notice 📢
+    ▪️ 2% extra for a second vehicle
+    ▪️ 15% life tax applicable for company-registered vehicles
+    ✴️ T & C Apply 
+
+*SIDDI VINAYAKA BAJAJ*
+*Showroom Location:* ${location}`;
+
+    setMessage(msg);
+  };
+
+  const sendViaWhatsApp = () => {
+    const phone = mobile.replace(/\D/g, "");
+    const url = `https://api.whatsapp.com/send?phone=91${phone}&text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
+  };
+
+  return (
+    <div className="p-4 max-w-xl mx-auto">
+      <Card>
+        <CardContent className="space-y-4 p-6">
+          <Input
+            placeholder="Enter Mobile Number"
+            value={mobile}
+            onChange={(e) => setMobile(e.target.value)}
+            onBlur={fetchCustomerName}
+          />
+          <div>
+            Name: <strong>{name}</strong>
+          </div>
+          {location && (
+            <div>
+              <strong>Showroom Location:</strong> {location}
+            </div>
+          )}
+
+          <select
+            className="w-full p-2 border rounded"
+            value={selectedProduct}
+            onChange={(e) => setSelectedProduct(e.target.value)}
+            onBlur={fetchProductDetails}
+          >
+            <option value="">Select Product</option>
+            {productList.map((product, i) => (
+              <option key={i} value={product}>{product}</option>
+            ))}
+          </select>
+
+          {productDetails.ourPrice && (
+            <div className="text-sm text-gray-700">
+              <div><strong>Actual Price:</strong> ₹{productDetails.actualPrice}</div>
+              <div><strong>Our Price:</strong> ₹{productDetails.ourPrice}</div>
+              <div><strong>Benefits:</strong> ₹{productDetails.benefits}</div>
+            </div>
+          )}
+
+          <Button onClick={generateMessage}>Generate Quote</Button>
+
+          {message && (
+            <div className="bg-gray-100 p-4 rounded">
+              <pre className="whitespace-pre-wrap text-sm font-medium">{message}</pre>
+              <div className="flex gap-2 mt-2">
+                <Button onClick={() => navigator.clipboard.writeText(message)}>Copy</Button>
+                <Button onClick={sendViaWhatsApp} className="bg-green-600 hover:bg-green-700 text-white flex items-center gap-2">
+                  <FaWhatsapp className="text-lg" /> Send WhatsApp Quote
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
