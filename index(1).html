@@ -1,0 +1,249 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script>```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WhatsApp Quote Generator</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React and ReactDOM CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.development.js"></script>
+  <!-- Babel CDN for JSX -->
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.22.9/Babel.min.js"></script>
+  <!-- Axios CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/axios@1.6.8/dist/axios.min.js"></script>
+  <!-- React Icons CDN (for FaWhatsapp) -->
+  <script src="https://cdn.jsdelivr.net/npm/react-icons@4.10.1/lib/index.umd.min.js"></script>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+    const { FaWhatsapp } = ReactIcons;
+
+    function WhatsAppQuote() {
+      const [mobile, setMobile] = useState("");
+      const [name, setName] = useState("");
+      const [location, setLocation] = useState("");
+      const [productList, setProductList] = useState([]);
+      const [selectedProduct, setSelectedProduct] = useState("");
+      const [productDetails, setProductDetails] = useState({});
+      const [message, setMessage] = useState("");
+
+      // Replace with your proxy server URL in production
+      const responsesSheetUrl = "http://localhost:5000/proxy?url=" + encodeURIComponent("https://docs.google.com/spreadsheets/d/e/2PACX-1vRPibZzNejSE_N7iVTUYUEuWB43ddlBtRvD7Xy8BEocGs_2fQfI2l1OOA8QRxM527RT1800EZXIirQ7/pub?gid=347901275&single=true&output=csv");
+      const priceListSheetUrl = "http://localhost:5000/proxy?url=" + encodeURIComponent("https://docs.google.com/spreadsheets/d/e/2PACX-1vSYZf2lDQ34ougMDq-ICcIifY2xj1waiYy_UYXWOLHRZcNyFL3f2gXPnSW7sWQEqibvqT-_GyuKU_CA/pub?gid=0&single=true&output=csv");
+
+      useEffect(() => {
+        axios.get(priceListSheetUrl).then((res) => {
+          const rows = res.data.split("\n").slice(1);
+          const products = [];
+          rows.forEach(row => {
+            const cols = row.split(",");
+            if (cols[2] && cols[2].trim() !== "") {
+              products.push(cols[2].trim());
+            }
+          });
+          setProductList([...new Set(products)]);
+        }).catch((err) => console.error("Error fetching products:", err));
+      }, []);
+
+      const fetchCustomerName = () => {
+        axios.get(responsesSheetUrl).then((res) => {
+          const lines = res.data.split("\n");
+          const headers = lines[0].split(",");
+          const locationIndex = headers.findIndex(h => h.toLowerCase().includes("location"));
+          const nameIndex = headers.findIndex(h => h.toLowerCase().includes("name"));
+          const mobileIndex = headers.findIndex(h => h.toLowerCase().includes("mobile"));
+          if (nameIndex === -1 || mobileIndex === -1) return;
+
+          for (let i = 1; i < lines.length; i++) {
+            const cols = lines[i].replace(/\r/g, "").split(",");
+            if (!cols[mobileIndex]) continue;
+            const csvMobile = cols[mobileIndex].replace(/\D/g, "");
+            const inputMobile = mobile.replace(/\D/g, "");
+            if (csvMobile.endsWith(inputMobile)) {
+              setName(cols[nameIndex]);
+              if (locationIndex !== -1) setLocation(cols[locationIndex]);
+              return;
+            }
+          }
+          setName("Not Found");
+          setLocation("");
+        }).catch((err) => console.error("Error fetching customer data:", err));
+      };
+
+      const fetchProductDetails = () => {
+        axios.get(priceListSheetUrl).then((res) => {
+          const rows = res.data.split("\n").slice(1);
+          for (let row of rows) {
+            const cols = row.split(",");
+            if (cols[2] && cols[2].trim() === selectedProduct.trim()) {
+              setProductDetails({
+                actualPrice: cols[3],
+                ourPrice: cols[4],
+                benefits: cols[5],
+              });
+              return;
+            }
+          }
+        }).catch((err) => console.error("Error fetching product details:", err));
+      };
+
+      const generateMessage = () => {
+        if (!name || !selectedProduct || !productDetails.ourPrice) return;
+
+        const today = new Date();
+        const formattedDate = today.toLocaleDateString("en-GB");
+
+        const msg = `Hi ${name.toUpperCase()}
+
+YOUR QUOTATION FOR *${selectedProduct.toUpperCase()}*
+
+*DATED:* ${formattedDate}
+
+*Actual On-Road Price:* ₹${productDetails.actualPrice}
+*Benefits:* ₹${productDetails.benefits}
+*Our On-Road Price:* ₹${productDetails.ourPrice}
+
+💰 *Price Includes:*
+✔️ Ex-Showroom Price
+✔️ 12% Life Tax 
+✔️ 1 Year OD + 4 Years TP + ₹15 Lakh PA Insurance 
+✔️ Temporary Registration 
+✔️ Hypothecation (If Financed) 
+✔️ Accessories 
+🛠️ Warranty: 2 Years + 3 Years Extended 
+
+⚠️ *NOTE:* ⚠️
+    ▪️ Agent charges extra 
+    ▪️ Offers subject to change without prior notice 📢
+    ▪️ 2% extra for a second vehicle
+    ▪️ 15% life tax applicable for company-registered vehicles
+    ✴️ T & C Apply 
+
+*SIDDI VINAYAKA BAJAJ*
+*Showroom Location:* ${location}`;
+
+        setMessage(msg);
+      };
+
+      const sendViaWhatsApp = () => {
+        const phone = mobile.replace(/\D/g, "");
+        const url = `https://api.whatsapp.com/send?phone=91${phone}&text=${encodeURIComponent(message)}`;
+        window.open(url, '_blank');
+      };
+
+      return (
+        <div className="p-4 max-w-xl mx-auto">
+          <div className="bg-white shadow-md rounded-lg p-6 space-y-4">
+            <input
+              className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Enter Mobile Number"
+              value={mobile}
+              onChange={(e) => setMobile(e.target.value)}
+              onBlur={fetchCustomerName}
+            />
+            <div>
+              Name: <strong>{name}</strong>
+            </div>
+            {location && (
+              <div>
+                <strong>Showroom Location:</strong> {location}
+              </div>
+            )}
+            <select
+              className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={selectedProduct}
+              onChange={(e) => setSelectedProduct(e.target.value)}
+              onBlur={fetchProductDetails}
+            >
+              <option value="">Select Product</option>
+              {productList.map((product, i) => (
+                <option key={i} value={product}>{product}</option>
+              ))}
+            </select>
+            {productDetails.ourPrice && (
+              <div className="text-sm text-gray-700">
+                <div><strong>Actual Price:</strong> ₹{productDetails.actualPrice}</div>
+                <div><strong>Our Price:</strong> ₹{productDetails.ourPrice}</div>
+                <div><strong>Benefits:</strong> ₹{productDetails.benefits}</div>
+              </div>
+            )}
+            <button
+              className="w-full bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700"
+              onClick={generateMessage}
+            >
+              Generate Quote
+            </button>
+            {message && (
+              <div className="bg-gray-100 p-4 rounded-md">
+                <pre className="whitespace-pre-wrap text-sm font-medium">{message}</pre>
+                <div className="flex gap-2 mt-2">
+                  <button
+                    className="bg-gray-600 text-white p-2 rounded-md hover:bg-gray-700"
+                    onClick={() => navigator.clipboard.writeText(message)}
+                  >
+                    Copy
+                  </button>
+                  <button
+                    className="bg-green-600 text-white p-2 rounded-md hover:bg-green-700 flex items-center gap-2"
+                    onClick={sendViaWhatsApp}
+                  >
+                    <FaWhatsapp className="text-lg" /> Send WhatsApp Quote
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<WhatsAppQuote />, document.getElementById('root'));
+  </script>
+</body>
+</html>
+```
